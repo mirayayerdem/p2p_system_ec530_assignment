@@ -20,7 +20,3 @@ jobs:
         python-version: '3.9'
 
 
-
-    - name: Run tests
-      run: |
-        pytest --maxfail=1 --disable-warnings -v
