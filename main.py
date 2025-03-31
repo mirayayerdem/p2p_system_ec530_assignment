@@ -11,7 +11,10 @@ db_conn = sqlite3.connect("server.db")
 db_cursor = db_conn.cursor()
 db_cursor.execute("""
     CREATE TABLE IF NOT EXISTS users (
-        username TEXT PRIMARY KEY
+        username TEXT PRIMARY KEY,
+        ip TEXT,
+        port INTEGER
+        
     )
 """)
 db_cursor.execute("""
@@ -32,7 +35,11 @@ async def handle_client(reader, writer):
     await writer.drain()
     username = (await reader.read(1024)).decode().strip()
     clients[username] = writer
-    db_cursor.execute("INSERT OR IGNORE INTO users (username) VALUES (?)", (username,))
+    ip, port = writer.get_extra_info('peername')
+    db_cursor.execute(
+    "INSERT OR REPLACE INTO users (username, ip, port) VALUES (?, ?, ?)",
+    (username, ip, port)
+)
     db_conn.commit()
     print(f"{username} connected from {address}")
     db_cursor.execute("SELECT username FROM users")
@@ -106,5 +113,5 @@ async def start_server():
 
     async with server:
         await server.serve_forever()
-asyncio.run(start_server())
-
+if __name__ == "__main__":
+    asyncio.run(start_server())

@@ -1,49 +1,77 @@
 import asyncio
 import pytest
-import os
 import sqlite3
-import time
+from unittest.mock import AsyncMock, patch
 
-DB_PATH = "chat_history.db"
-PORT = 5555
+from main import handle_client  # adjust if your file is named differently
 
-@pytest.fixture(scope="module")
-def clean_db():
-    """Ensure a clean slate DB."""
-    if os.path.exists(DB_PATH):
-        os.remove(DB_PATH)
-    yield
-    if os.path.exists(DB_PATH):
-        os.remove(DB_PATH)
+@pytest.fixture
+def in_memory_db():
+    conn = sqlite3.connect(':memory:')
+    cursor = conn.cursor()
 
-# --- Use subprocess to run real server.py ---
-@pytest.mark.asyncio
-async def test_client_message_storage(clean_db):
-    # Start your server in a background task
-    server = await asyncio.start_server(echo_handler, '127.0.0.1', PORT)
-    await asyncio.sleep(0.1)  # Give time for server to bind
+    # Updated schema for `users` table
+    cursor.execute("""
+        CREATE TABLE users (
+            username TEXT PRIMARY KEY,
+            ip TEXT,
+            port INTEGER
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE offline_messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sender TEXT,
+            target TEXT,
+            message TEXT,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    conn.commit()
+    yield conn, cursor
+    conn.close()
 
-    # Simulate a client sending a message
-    reader, writer = await asyncio.open_connection('127.0.0.1', PORT)
-    test_message = "Hello from test!"
-    writer.write(test_message.encode())
-    await writer.drain()
+@pytest.mark.asyncio(scope="function")
+async def test_handle_client_new_user(monkeypatch, in_memory_db):
+    conn, cursor = in_memory_db
 
-    # Read the server's echo back
-    response = await reader.read(1024)
-    assert response.decode() == f"Echo: {test_message}"
+    # Mock reader and writer
+    from unittest.mock import AsyncMock, MagicMock
 
-    writer.close()
-    await writer.wait_closed()
+    reader = AsyncMock()
+    writer = MagicMock()
+    writer.write = AsyncMock()
+    writer.drain = AsyncMock()
+    writer.close = MagicMock()
+    writer.wait_closed = AsyncMock()
 
-    server.close()
-    await server.wait_closed()
+    mock_ip = '192.168.1.5'
+    mock_port = 56789
+    writer.get_extra_info.return_value = (mock_ip, mock_port)
 
-# --- Dummy echo server handler ---
-async def echo_handler(reader, writer):
-    data = await reader.read(1024)
-    writer.write(f"Echo: {data.decode()}".encode())
-    await writer.drain()
-    writer.close()
-    await writer.wait_closed()
+    # Simulate peer info
+    mock_ip = '192.168.1.5'
+    mock_port = 56789
+    writer.get_extra_info.return_value = (mock_ip, mock_port)
 
+    # Simulate username input and disconnect
+    reader.read = AsyncMock(side_effect=[
+        b'testuser\n',  # username input
+        b''             # simulate disconnect
+    ])
+
+    # Patch global vars in server module
+    monkeypatch.setitem(__import__('main').__dict__, 'db_conn', conn)
+    monkeypatch.setitem(__import__('main').__dict__, 'db_cursor', cursor)
+    monkeypatch.setitem(__import__('main').__dict__, 'clients', {})
+
+    await handle_client(reader, writer)
+
+    # Verify the user was saved with correct IP and port
+    cursor.execute("SELECT username, ip, port FROM users WHERE username = 'testuser'")
+    result = cursor.fetchone()
+
+    assert result is not None
+    assert result[0] == 'testuser'
+    assert result[1] == mock_ip
+    assert result[2] == mock_port

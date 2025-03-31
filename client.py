@@ -42,8 +42,15 @@ async def send_messages(writer,cursor,conn):
             break
 async def start_client():
 
+    server_ip = input("Enter server IP (e.g., 127.0.0.1): ")
+    port = input("Enter server port (e.g., 5555): ")
+    try:
+        port = int(port)
+    except ValueError:
+        print("Invalid port number.")
+        return
 
-    reader,writer = await asyncio.open_connection('127.0.0.1', 5555) #local ip address
+    reader, writer = await asyncio.open_connection(server_ip, port)
     print('Connection to server is successful')
   # Username setup
     welcome = await reader.read(1024)
