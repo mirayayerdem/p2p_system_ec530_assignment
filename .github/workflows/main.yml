@@ -19,4 +19,10 @@ jobs:
       with:
         python-version: '3.9'
 
+- name: Install dependencies
+      run: |
+        pip install pytest
 
+    - name: Run tests
+      run: |
+        pytest .
